@@ -1,0 +1,69 @@
+#!/usr/bin/env ruby
+#require 'rubygems'
+require 'yaml'
+
+class Hash
+  def smash(join_char = "/")
+    new_hash = {}
+    each do |key,val|
+      if val.is_a?(Hash)
+        new_hash.merge!(val.prefix_keys("#{key}#{join_char}"))
+      else
+        new_hash[key] = val
+      end
+    end
+    new_hash
+  end
+    
+  def prefix_keys(prefix)
+    Hash[map{|key,val| ["#{prefix}#{key}", val]}].smash
+  end
+end
+
+require "optparse"
+require "open-uri"
+require "json"
+options = {}
+
+optparse = OptionParser.new do |opts|
+  
+  opts.banner = "Usage:: Load data to consul server from a YML"
+
+  opts.on("-s", "--server SERVER", "server hostname/ip on which consul is running") do |host|
+    options[:host] = host
+  end
+
+  opts.on("-p", "--port PORT", "port on which consul is running") do |port|
+    options[:port] = port
+  end
+
+  opts.on("-y", "--yaml YAML", "path to yaml file") do |yaml_path|
+    options[:yaml_path] = yaml_path
+  end
+
+  opts.on("-f", "--folder FOLDER", "name of the folder") do |folder|
+    options[:folder] = folder
+  end
+
+end
+
+optparse.parse!
+
+options[:host] ||= "localhost"
+options[:port] ||= "8500"
+options[:yaml_path] ||= "consul.yml"
+options[:folder] ||= "services"
+
+h = YAML::load_file(options[:yaml_path])
+
+api_url = "http://#{options[:host]}:#{options[:port]}/v1/kv/#{options[:folder]}/"
+
+`curl -X DELETE #{api_url}?recurse`
+
+h.smash.each do |key,value|
+  if value.is_a?(Hash) or value.is_a?(Array)
+    `curl -X PUT -d '#{value.to_json}' #{api_url}#{key}`
+  else
+    `curl -X PUT -d '#{value}' #{api_url}#{key}`
+  end
+end

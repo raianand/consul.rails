@@ -1,0 +1,58 @@
+#!/usr/bin/env ruby
+require 'yaml'
+require "optparse"
+require "json"
+require "open-uri"
+require "base64"
+options = {}
+
+optparse = OptionParser.new do |opts|
+  
+  opts.banner = "Usage:: Dump data from consul server to specified YML"
+
+  opts.on("-s", "--server SERVER", "server hostname/ip on which consul is running") do |host|
+    options[:host] = host
+  end
+
+  opts.on("-p", "--port PORT", "port on which consul is running") do |port|
+    options[:port] = port
+  end
+
+  opts.on("-y", "--yaml YAML", "path to yaml file") do |yaml_path|
+    options[:yaml_path] = yaml_path
+  end
+
+  opts.on("-f", "--folder FOLDER", "name of the folder") do |folder|
+    options[:folder] = folder
+  end
+
+end
+
+optparse.parse!
+
+options[:host] ||= "localhost"
+options[:port] ||= "8500"
+options[:yaml_path] ||= "consul.yml"
+options[:folder] ||= "services"
+
+api_url = "http://#{options[:host]}:#{options[:port]}/v1/kv/#{options[:folder]}/?recurse"
+
+json_data = URI(api_url).read
+data = JSON.parse(json_data)
+data = Hash[data.map{|d| [d["Key"], ( d["Value"].nil? ? d["Value"] : Base64.decode64(d["Value"]) )]}] 
+
+h = Hash.new
+data.each do |key,value|
+  node = h
+  subkeys = key.split("/")
+  subkeys[0..-2].each do |k|
+    node[k] = {} if node[k].nil?
+    node = node[k]
+  end
+  node[subkeys[-1]] = JSON.parse(value) rescue value
+end
+
+
+File.open(options[:yaml_path], "w") do |file|
+  file.write(h[options[:folder]].to_yaml)
+end
